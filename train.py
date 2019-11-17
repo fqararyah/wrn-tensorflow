@@ -10,25 +10,37 @@ import numpy as np
 import cifar100 as data_input
 import resnet
 
+import json
+from tensorflow.python.client import timeline
+from graphviz import Digraph
+from graphviz import Source
 
 
 # Dataset Configuration
-tf.app.flags.DEFINE_string('data_dir', './cifar-100-binary', """Path to the CIFAR-100 binary data.""")
-tf.app.flags.DEFINE_integer('num_classes', 100, """Number of classes in the dataset.""")
-tf.app.flags.DEFINE_integer('num_train_instance', 50000, """Number of training images.""")
-tf.app.flags.DEFINE_integer('num_test_instance', 10000, """Number of test images.""")
+tf.app.flags.DEFINE_string(
+    'data_dir', './cifar-100-binary', """Path to the CIFAR-100 binary data.""")
+tf.app.flags.DEFINE_integer(
+    'num_classes', 100, """Number of classes in the dataset.""")
+tf.app.flags.DEFINE_integer(
+    'num_train_instance', 50000, """Number of training images.""")
+tf.app.flags.DEFINE_integer(
+    'num_test_instance', 10000, """Number of test images.""")
 
 # Network Configuration
-tf.app.flags.DEFINE_integer('batch_size', 100, """Number of images to process in a batch.""")
-tf.app.flags.DEFINE_integer('num_residual_units', 2, """Number of residual block per group.
+tf.app.flags.DEFINE_integer(
+    'batch_size', 256, """Number of images to process in a batch.""")
+tf.app.flags.DEFINE_integer('num_residual_units', 34, """Number of residual block per group.
                                                 Total number of conv layers will be 6n+4""")
-tf.app.flags.DEFINE_integer('k', 2, """Network width multiplier""")
+tf.app.flags.DEFINE_integer('k', 100, """Network width multiplier""")
 
 # Optimization Configuration
-tf.app.flags.DEFINE_float('l2_weight', 0.0001, """L2 loss weight applied all the weights""")
-tf.app.flags.DEFINE_float('momentum', 0.9, """The momentum of MomentumOptimizer""")
+tf.app.flags.DEFINE_float(
+    'l2_weight', 0.0001, """L2 loss weight applied all the weights""")
+tf.app.flags.DEFINE_float(
+    'momentum', 0.9, """The momentum of MomentumOptimizer""")
 tf.app.flags.DEFINE_float('initial_lr', 0.1, """Initial learning rate""")
-tf.app.flags.DEFINE_float('lr_step_epoch', 100.0, """Epochs after which learing rate decays""")
+tf.app.flags.DEFINE_float('lr_step_epoch', 100.0,
+                          """Epochs after which learing rate decays""")
 tf.app.flags.DEFINE_float('lr_decay', 0.1, """Learning rate decay factor""")
 # tf.app.flags.DEFINE_boolean('basenet_train', True, """Flag whether the model will train the base network""")
 # tf.app.flags.DEFINE_float('basenet_lr_ratio', 0.1, """Learning rate ratio of basenet to bypass net""")
@@ -39,16 +51,41 @@ tf.app.flags.DEFINE_float('lr_decay', 0.1, """Learning rate decay factor""")
 # tf.app.flags.DEFINE_string('pretrained_dir', './pretrain', """Directory where to load pretrained model.(Only for --finetune True""")
 
 # Training Configuration
-tf.app.flags.DEFINE_string('train_dir', './train', """Directory where to write log and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
-tf.app.flags.DEFINE_integer('display', 100, """Number of iterations to display training info.""")
-tf.app.flags.DEFINE_integer('test_interval', 1000, """Number of iterations to run a test""")
-tf.app.flags.DEFINE_integer('test_iter', 100, """Number of iterations during a test""")
-tf.app.flags.DEFINE_integer('checkpoint_interval', 10000, """Number of iterations to save parameters as a checkpoint""")
-tf.app.flags.DEFINE_float('gpu_fraction', 0.95, """The fraction of GPU memory to be allocated""")
-tf.app.flags.DEFINE_boolean('log_device_placement', False, """Whether to log device placement.""")
+tf.app.flags.DEFINE_string('train_dir', './train',
+                           """Directory where to write log and checkpoint.""")
+tf.app.flags.DEFINE_integer(
+    'max_steps', 100000, """Number of batches to run.""")
+tf.app.flags.DEFINE_integer(
+    'display', 10, """Number of iterations to display training info.""")
+tf.app.flags.DEFINE_integer('test_interval', 1000,
+                            """Number of iterations to run a test""")
+tf.app.flags.DEFINE_integer(
+    'test_iter', 100, """Number of iterations during a test""")
+tf.app.flags.DEFINE_integer('checkpoint_interval', 10000,
+                            """Number of iterations to save parameters as a checkpoint""")
+tf.app.flags.DEFINE_float('gpu_fraction', 0.95,
+                          """The fraction of GPU memory to be allocated""")
+tf.app.flags.DEFINE_boolean('log_device_placement',
+                            False, """Whether to log device placement.""")
 
 FLAGS = tf.app.flags.FLAGS
+
+
+def profile(run_metadata, epoch=0):
+            with open('profs/timeline_step' + str(epoch) + '.json', 'w') as f:
+                # Create the Timeline object, and write it to a json file
+                fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+                chrome_trace = fetched_timeline.generate_chrome_trace_format()
+                f.write(chrome_trace)
+
+
+def graph_to_dot(graph):
+    dot = Digraph()
+    for n in graph.as_graph_def().node:
+        dot.node(n.name, label=n.name)
+        for i in n.input:
+            dot.edge(i, n.name)
+    return dot
 
 
 def train():
@@ -80,19 +117,21 @@ def train():
     print('\tGPU memory fraction: %f' % FLAGS.gpu_fraction)
     print('\tLog device placement: %d' % FLAGS.log_device_placement)
 
-
     with tf.Graph().as_default():
         init_step = 0
         global_step = tf.Variable(0, trainable=False, name='global_step')
 
         # Get images and labels of CIFAR-100
         with tf.variable_scope('train_image'):
-            train_images, train_labels = data_input.input_fn(FLAGS.data_dir, FLAGS.batch_size, train_mode=True)
+            train_images, train_labels = data_input.input_fn(
+                FLAGS.data_dir, FLAGS.batch_size, train_mode=True)
         with tf.variable_scope('test_image'):
-            test_images, test_labels = data_input.input_fn(FLAGS.data_dir, FLAGS.batch_size, train_mode=False)
+            test_images, test_labels = data_input.input_fn(
+                FLAGS.data_dir, FLAGS.batch_size, train_mode=False)
 
         # Build a Graph that computes the predictions from the inference model.
-        images = tf.placeholder(tf.float32, [FLAGS.batch_size, data_input.HEIGHT, data_input.WIDTH, 3])
+        images = tf.placeholder(
+            tf.float32, [FLAGS.batch_size, data_input.HEIGHT, data_input.WIDTH, 3])
         labels = tf.placeholder(tf.int32, [FLAGS.batch_size])
 
         # Build model
@@ -118,18 +157,77 @@ def train():
 
         # Start running operations on the Graph.
         sess = tf.Session(config=tf.ConfigProto(
-            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=FLAGS.gpu_fraction),
+            gpu_options=tf.GPUOptions(
+                per_process_gpu_memory_fraction=FLAGS.gpu_fraction),
             log_device_placement=FLAGS.log_device_placement))
         sess.run(init)
 
+        # fareed
+        dot_rep = graph_to_dot(tf.get_default_graph())
+        with open('profs/wrn.dot', 'w') as fwr:
+            fwr.write(str(dot_rep))
+
+        options = tf.RunOptions(trace_level=tf.RunOptions.SOFTWARE_TRACE)
+        run_metadata = tf.RunMetadata()
+
+        operations_tensors = {}
+        operations_names = tf.get_default_graph().get_operations()
+        count1 = 0
+        count2 = 0
+
+        for operation in operations_names:
+            operation_name = operation.name
+            operations_info = tf.get_default_graph().get_operation_by_name(operation_name).values()
+            if len(operations_info) > 0:
+                if not (operations_info[0].shape.ndims is None):
+                    operation_shape = operations_info[0].shape.as_list()
+                    operation_dtype_size = operations_info[0].dtype.size
+                    if not (operation_dtype_size is None):
+                        operation_no_of_elements = 1
+                        for dim in operation_shape:
+                            if not(dim is None):
+                                operation_no_of_elements = operation_no_of_elements * dim
+                        total_size = operation_no_of_elements * operation_dtype_size
+                        operations_tensors[operation_name] = total_size
+                    else:
+                        count1 = count1 + 1
+                else:
+                    count1 = count1 + 1
+                    operations_tensors[operation_name] = -1
+
+                #   print('no shape_1: ' + operation_name)
+                #  print('no shape_2: ' + str(operations_info))
+                #  operation_namee = operation_name + ':0'
+                # tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
+                # print('no shape_3:' + str(tf.shape(tensor)))
+                # print('no shape:' + str(tensor.get_shape()))
+
+            else:
+                # print('no info :' + operation_name)
+                # operation_namee = operation.name + ':0'
+                count2 = count2 + 1
+                operations_tensors[operation_name] = -1
+
+                # try:
+                #   tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
+                # print(tensor)
+                # print(tf.shape(tensor))
+                # except:
+                # print('no tensor: ' + operation_namee)
+        print(count1)
+        print(count2)
+        with open('profs/tensors_sz.json', 'w') as f:
+            json.dump(operations_tensors, f)
+        # end fareed
         # Create a saver.
-        saver = tf.train.Saver(tf.all_variables(), max_to_keep=10000)
-        ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+        saver=tf.train.Saver(tf.all_variables(), max_to_keep=10000)
+        ckpt=tf.train.get_checkpoint_state(FLAGS.train_dir)
         if ckpt and ckpt.model_checkpoint_path:
            print('\tRestore from %s' % ckpt.model_checkpoint_path)
            # Restores from checkpoint
            saver.restore(sess, ckpt.model_checkpoint_path)
-           init_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1])
+           init_step=int(ckpt.model_checkpoint_path.split('/')
+                         [-1].split('-')[-1])
         else:
            print('No checkpoint file found. Start from the scratch.')
 
@@ -137,30 +235,32 @@ def train():
         tf.train.start_queue_runners(sess=sess)
         if not os.path.exists(FLAGS.train_dir):
             os.mkdir(FLAGS.train_dir)
-        summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
+        summary_writer=tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
 
         # Training!
-        test_best_acc = 0.0
+        test_best_acc=0.0
         for step in range(init_step, FLAGS.max_steps):
             # Test
             if step % FLAGS.test_interval == 0:
-                test_loss, test_acc = 0.0, 0.0
+                test_loss, test_acc=0.0, 0.0
                 for i in range(FLAGS.test_iter):
-                    test_images_val, test_labels_val = sess.run([test_images, test_labels])
-                    loss_value, acc_value = sess.run([network.loss, network.acc],
-                                feed_dict={network.is_train:False, images:test_images_val, labels:test_labels_val})
+                    test_images_val, test_labels_val=sess.run(
+                        [test_images, test_labels])
+                    loss_value, acc_value=sess.run([network.loss, network.acc],
+                                feed_dict={network.is_train: False, images: test_images_val, labels: test_labels_val})
                     test_loss += loss_value
                     test_acc += acc_value
                 test_loss /= FLAGS.test_iter
                 test_acc /= FLAGS.test_iter
-                test_best_acc = max(test_best_acc, test_acc)
-                format_str = ('%s: (Test)     step %d, loss=%.4f, acc=%.4f')
+                test_best_acc=max(test_best_acc, test_acc)
+                format_str=('%s: (Test)     step %d, loss=%.4f, acc=%.4f')
                 print(format_str % (datetime.now(), step, test_loss, test_acc))
 
-                test_summary = tf.Summary()
+                test_summary=tf.Summary()
                 test_summary.value.add(tag='test/loss', simple_value=test_loss)
                 test_summary.value.add(tag='test/acc', simple_value=test_acc)
-                test_summary.value.add(tag='test/best_acc', simple_value=test_best_acc)
+                test_summary.value.add(
+                    tag='test/best_acc', simple_value=test_best_acc)
                 summary_writer.add_summary(test_summary, step)
                 # test_loss_summary = tf.Summary()
                 # test_loss_summary.value.add(tag='test/loss', simple_value=test_loss)
@@ -174,21 +274,30 @@ def train():
                 summary_writer.flush()
 
             # Train
-            start_time = time.time()
-            train_images_val, train_labels_val = sess.run([train_images, train_labels])
-            _, lr_value, loss_value, acc_value, train_summary_str = \
-                    sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
-                        feed_dict={network.is_train:True, images:train_images_val, labels:train_labels_val})
-            duration = time.time() - start_time
+            # fareed
+            if step % 10 == 7:
+                train_images_val, train_labels_val=sess.run(
+                [train_images, train_labels], run_metadata=run_metadata, options=options)
+                _, lr_value, loss_value, acc_value, train_summary_str=sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
+                            feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val}, run_metadata=run_metadata, options=options)
+                profile(run_metadata, step)
+                # end fareed
+            else:
+                start_time=time.time()
+                train_images_val, train_labels_val=sess.run(
+                    [train_images, train_labels])
+                _, lr_value, loss_value, acc_value, train_summary_str=sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
+                            feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val})
+                duration=time.time() - start_time
 
             assert not np.isnan(loss_value)
 
             # Display & Summary(training)
             if step % FLAGS.display == 0:
-                num_examples_per_step = FLAGS.batch_size
-                examples_per_sec = num_examples_per_step / duration
-                sec_per_batch = float(duration)
-                format_str = ('%s: (Training) step %d, loss=%.4f, acc=%.4f, lr=%f (%.1f examples/sec; %.3f '
+                num_examples_per_step=FLAGS.batch_size
+                examples_per_sec=num_examples_per_step / duration
+                sec_per_batch=float(duration)
+                format_str=('%s: (Training) step %d, loss=%.4f, acc=%.4f, lr=%f (%.1f examples/sec; %.3f '
                               'sec/batch)')
                 print(format_str % (datetime.now(), step, loss_value, acc_value, lr_value,
                                      examples_per_sec, sec_per_batch))
@@ -196,7 +305,7 @@ def train():
 
             # Save the model checkpoint periodically.
             if (step > init_step and step % FLAGS.checkpoint_interval == 0) or (step + 1) == FLAGS.max_steps:
-                checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+                checkpoint_path=os.path.join(FLAGS.train_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 
 
