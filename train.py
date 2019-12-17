@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+#import os
+#os.environ["CUDA_VISIBLE_DEVICES"]="-1" 
 
 import os
 from datetime import datetime
@@ -156,10 +158,7 @@ def train():
         init = tf.initialize_all_variables()
 
         # Start running operations on the Graph.
-        sess = tf.Session(config=tf.ConfigProto(
-            gpu_options=tf.GPUOptions(
-                per_process_gpu_memory_fraction=FLAGS.gpu_fraction),
-            log_device_placement=FLAGS.log_device_placement))
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=FLAGS.log_device_placement))
         sess.run(init)
 
         # fareed
@@ -167,9 +166,9 @@ def train():
         with open('profs/wrn.dot', 'w') as fwr:
             fwr.write(str(dot_rep))
 
-        options = tf.RunOptions(trace_level=tf.RunOptions.SOFTWARE_TRACE)
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, report_tensor_allocations_upon_oom = True)
         run_metadata = tf.RunMetadata()
-
+                
         operations_tensors = {}
         operations_names = tf.get_default_graph().get_operations()
         count1 = 0
@@ -281,15 +280,27 @@ def train():
                 _, lr_value, loss_value, acc_value, train_summary_str=sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
                             feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val}, run_metadata=run_metadata, options=options)
                 profile(run_metadata, step)
+                
+                if step == 7:
+                    options_mem = tf.profiler.ProfileOptionBuilder.time_and_memory()
+                    options_mem["min_bytes"] = 0
+                    options_mem["min_micros"] = 0
+                    options_mem["output"] = 'file:outfile=./profs/mem.txt'
+                    options_mem["select"] = ("bytes", "peak_bytes", "output_bytes",
+                                         "residual_bytes")
+                    mem = tf.profiler.profile(tf.get_default_graph(), run_meta=run_metadata, cmd="scope", options=options_mem)
+                    with open('profs/mem_2.txt', 'w') as f:
+                        f.write(str(mem))
                 # end fareed
             else:
                 start_time=time.time()
                 train_images_val, train_labels_val=sess.run(
                     [train_images, train_labels])
                 _, lr_value, loss_value, acc_value, train_summary_str=sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
-                            feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val})
+                            feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val}, options= options)
                 duration=time.time() - start_time
-
+        
+        
             assert not np.isnan(loss_value)
 
             # Display & Summary(training)
