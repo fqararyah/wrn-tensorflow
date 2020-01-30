@@ -68,7 +68,7 @@ tf.app.flags.DEFINE_integer('checkpoint_interval', 10000,
 tf.app.flags.DEFINE_float('gpu_fraction', 0.95,
                           """The fraction of GPU memory to be allocated""")
 tf.app.flags.DEFINE_boolean('log_device_placement',
-                            False, """Whether to log device placement.""")
+                            True, """Whether to log device placement.""")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -165,8 +165,8 @@ def train():
         dot_rep = graph_to_dot(tf.get_default_graph())
         with open('profs/wrn.dot', 'w') as fwr:
             fwr.write(str(dot_rep))
-
-        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, report_tensor_allocations_upon_oom = True)
+        #trace_level=tf.RunOptions.FULL_TRACE, 
+        options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
         run_metadata = tf.RunMetadata()
                 
         operations_tensors = {}
@@ -240,7 +240,7 @@ def train():
         test_best_acc=0.0
         for step in range(init_step, FLAGS.max_steps):
             # Test
-            if step % FLAGS.test_interval == 0:
+            if step % FLAGS.test_interval == 777:
                 test_loss, test_acc=0.0, 0.0
                 for i in range(FLAGS.test_iter):
                     test_images_val, test_labels_val=sess.run(
