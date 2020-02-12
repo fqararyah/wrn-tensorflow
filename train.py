@@ -1,8 +1,7 @@
 #!/usr/bin/env python
-#import os
-#os.environ["CUDA_VISIBLE_DEVICES"]="-1" 
 
 import os
+#os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 from datetime import datetime
 import time
 
@@ -158,25 +157,36 @@ def train():
         init = tf.initialize_all_variables()
 
         # Start running operations on the Graph.
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=FLAGS.log_device_placement))
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=tf.GPUOptions(
+            per_process_gpu_memory_fraction=FLAGS.gpu_fraction), log_device_placement=False))
         sess.run(init)
 
         # fareed
         dot_rep = graph_to_dot(tf.get_default_graph())
         with open('profs/wrn.dot', 'w') as fwr:
             fwr.write(str(dot_rep))
-        #trace_level=tf.RunOptions.FULL_TRACE, 
-        options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
+        # trace_level=tf.RunOptions.FULL_TRACE,
+        options = tf.RunOptions(report_tensor_allocations_upon_oom=True)
         run_metadata = tf.RunMetadata()
-                
+
         operations_tensors = {}
+        operations_attributes = {}
         operations_names = tf.get_default_graph().get_operations()
         count1 = 0
         count2 = 0
 
         for operation in operations_names:
             operation_name = operation.name
-            operations_info = tf.get_default_graph().get_operation_by_name(operation_name).values()
+            operations_info = tf.get_default_graph(
+            ).get_operation_by_name(operation_name).values()
+            
+            try:
+                operations_attributes[operation_name] = []
+                operations_attributes[operation_name].append(operation.type)
+                operations_attributes[operation_name].append(tf.get_default_graph(
+                ).get_tensor_by_name(operation_name + ':0').dtype._is_ref_dtype)
+            except:
+                pass
             if len(operations_info) > 0:
                 if not (operations_info[0].shape.ndims is None):
                     operation_shape = operations_info[0].shape.as_list()
@@ -215,11 +225,21 @@ def train():
                 # print('no tensor: ' + operation_namee)
         print(count1)
         print(count2)
-        with open('profs/tensors_sz.json', 'w') as f:
-            json.dump(operations_tensors, f)
+        with open('./profs/tensors_sz_32.txt', 'w') as f:
+            for tensor, size in operations_tensors.items():
+                f.write('"' + tensor + '"::' + str(size) + '\n')
+
+        with open('./profs/operations_attributes.txt', 'w') as f:
+            for op, attrs in operations_attributes.items():
+                strr = op
+                for attr in attrs:
+                    strr += '::' + str(attr)
+                strr += '\n'
+                f.write(strr)
+
         # end fareed
         # Create a saver.
-        saver=tf.train.Saver(tf.all_variables(), max_to_keep=10000)
+        saver=tf.train.Saver(tf.all_variables(), max_to_keep = 10000)
         ckpt=tf.train.get_checkpoint_state(FLAGS.train_dir)
         if ckpt and ckpt.model_checkpoint_path:
            print('\tRestore from %s' % ckpt.model_checkpoint_path)
@@ -274,14 +294,14 @@ def train():
 
             # Train
             # fareed
-            if step % 10 == 7:
+            if step % 10 == 1:
                 train_images_val, train_labels_val=sess.run(
                 [train_images, train_labels], run_metadata=run_metadata, options=options)
                 _, lr_value, loss_value, acc_value, train_summary_str=sess.run([network.train_op, network.lr, network.loss, network.acc, train_summary_op],
                             feed_dict={network.is_train: True, images: train_images_val, labels: train_labels_val}, run_metadata=run_metadata, options=options)
                 profile(run_metadata, step)
                 
-                if step == 7:
+                if step == 1:
                     options_mem = tf.profiler.ProfileOptionBuilder.time_and_memory()
                     options_mem["min_bytes"] = 0
                     options_mem["min_micros"] = 0
